@@ -1,0 +1,30 @@
+{
+  "name": "sala-caleu-display",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "homepage": "https://igajardocm.github.io/sala-caleu",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "deploy": "gh-pages -d dist",
+    "tailwind:init": "npx tailwindcss init -p"
+  },
+  "dependencies": {
+    "framer-motion": "^11.0.0",
+    "lucide-react": "^0.297.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "sweetalert2": "^11.22.2"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.11",
+    "@vitejs/plugin-react": "^4.1.0",
+    "autoprefixer": "^10.4.21",
+    "gh-pages": "^6.0.0",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^3.4.17",
+    "vite": "^5.2.10"
+  }
+}
