@@ -27,7 +27,7 @@ export default function SalaDisplay() {
   const [tokenClient, setTokenClient] = useState(null)
 
   useEffect(() => {
-    const timer = setInterval(() => setHoraActual(new Date()), 60000)
+    const timer = setInterval(() => setHoraActual(new Date()), 10000)
     cargarGoogleIdentity()
     return () => clearInterval(timer)
   }, [])
