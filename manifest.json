@@ -1,7 +1,7 @@
 {
   "name": "Sala Caleu Display",
   "short_name": "Sala Caleu",
-  "start_url": ".",
+  "start_url": "/sala-caleu/",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#000000",
