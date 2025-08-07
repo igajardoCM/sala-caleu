@@ -10,8 +10,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
 )
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/service-worker.js')
-      .then(reg => console.log('SW registrado', reg))
-      .catch(err => console.error('SW fallo', err));
+    navigator.serviceWorker.register('/sala-caleu/service-worker.js')
+      .then(reg => console.log('Service Worker registrado ✅', reg))
+      .catch(err => console.error('Error al registrar Service Worker ❌', err));
   });
 }
