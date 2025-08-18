@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { motion } from 'framer-motion'
 import './index.css'
 import NombreReservaModal from './components/NombreReservaModal'
@@ -26,10 +26,84 @@ export default function SalaDisplay() {
   const [accessToken, setAccessToken] = useState(null)
   const [tokenClient, setTokenClient] = useState(null)
 
+  // --- Wake Lock (mantener pantalla encendida) ---
+  const [wakeLockSoportado, setWakeLockSoportado] = useState('wakeLock' in navigator)
+  const wakeLockRef = useRef(null)
+  const [wakeActivo, setWakeActivo] = useState(false)
+
+  async function solicitarWakeLock() {
+    try {
+      if (!('wakeLock' in navigator)) return
+      if (wakeLockRef.current) return
+      wakeLockRef.current = await navigator.wakeLock.request('screen')
+      setWakeActivo(true)
+      wakeLockRef.current.addEventListener('release', () => {
+        setWakeActivo(false)
+        wakeLockRef.current = null
+      })
+    } catch (err) {
+      console.warn('No se pudo activar Wake Lock:', err?.message || err)
+      setWakeActivo(false)
+      wakeLockRef.current = null
+    }
+  }
+
+  function liberarWakeLock() {
+    try {
+      if (wakeLockRef.current) {
+        wakeLockRef.current.release()
+        wakeLockRef.current = null
+      }
+    } catch {}
+    setWakeActivo(false)
+  }
+
+  // Reactiva el wake lock cuando la pestaña vuelve a ser visible o la ventana recupera foco
+  useEffect(() => {
+    if (!wakeLockSoportado) return
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        solicitarWakeLock()
+      }
+    }
+    const onFocus = () => solicitarWakeLock()
+    document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('focus', onFocus)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('focus', onFocus)
+    }
+  }, [wakeLockSoportado])
+
+  // Solicita el wake lock tras el primer gesto del usuario (requisito de algunos navegadores)
+  useEffect(() => {
+    if (!wakeLockSoportado) return
+    let activado = false
+    const handler = async () => {
+      if (!activado) {
+        activado = true
+        await solicitarWakeLock()
+        window.removeEventListener('click', handler)
+        window.removeEventListener('touchstart', handler)
+      }
+    }
+    window.addEventListener('click', handler, { passive: true })
+    window.addEventListener('touchstart', handler, { passive: true })
+    return () => {
+      window.removeEventListener('click', handler)
+      window.removeEventListener('touchstart', handler)
+      liberarWakeLock()
+    }
+  }, [wakeLockSoportado])
+  // --- Fin Wake Lock ---
+
   useEffect(() => {
     const timer = setInterval(() => setHoraActual(new Date()), 10000)
     cargarGoogleIdentity()
-    return () => clearInterval(timer)
+    return () => {
+      clearInterval(timer)
+      liberarWakeLock() // por si acaso al desmontar
+    }
   }, [])
 
   function cargarGoogleIdentity() {
@@ -100,10 +174,10 @@ export default function SalaDisplay() {
 
   async function obtenerEventosCalendario(token) {
     const hoy = new Date()
-    const inicio = new Date(hoy.setHours(8, 0, 0, 0)).toISOString()
-    const fin = new Date(hoy.setHours(19, 0, 0, 0)).toISOString()
+    const inicioISO = new Date(new Date(hoy).setHours(8, 0, 0, 0)).toISOString()
+    const finISO = new Date(new Date(hoy).setHours(19, 0, 0, 0)).toISOString()
 
-    const res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/${GOOGLE_CALENDAR_ID}/events?timeMin=${inicio}&timeMax=${fin}&singleEvents=true&orderBy=startTime`, {
+    const res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/${GOOGLE_CALENDAR_ID}/events?timeMin=${inicioISO}&timeMax=${finISO}&singleEvents=true&orderBy=startTime`, {
       headers: { Authorization: `Bearer ${token}` }
     })
 
@@ -185,6 +259,17 @@ export default function SalaDisplay() {
           <img src={logo} alt="Logo" className="logo" />
           <p className="titulo-sala">Autenticación requerida</p>
           <button onClick={iniciarSesion} className="boton-reservar">Iniciar sesión con Google</button>
+
+          {/* Indicador Wake Lock (antes de login puede no estar activo aún) */}
+          {!wakeLockSoportado ? (
+            <p style={{ opacity: .8, fontSize: 12, marginTop: 8 }}>
+              ℹ️ Tu navegador no soporta mantener la pantalla encendida.
+            </p>
+          ) : (
+            <p style={{ opacity: .8, fontSize: 12, marginTop: 8 }}>
+              {wakeActivo ? '🔒 Pantalla despierta' : '⚠️ Toca la pantalla para activar “pantalla despierta”.'}
+            </p>
+          )}
         </div>
       </div>
     )
@@ -200,6 +285,17 @@ export default function SalaDisplay() {
         {evento && (
           <p className="rango-hora">
             <Clock className="icono" /> {new Date(evento.start.dateTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {new Date(evento.end.dateTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </p>
+        )}
+
+        {/* Indicador Wake Lock */}
+        {!wakeLockSoportado ? (
+          <p style={{ opacity: .8, fontSize: 12, marginTop: 8 }}>
+            ℹ️ Tu navegador no soporta mantener la pantalla encendida.
+          </p>
+        ) : (
+          <p style={{ opacity: .8, fontSize: 12, marginTop: 8 }}>
+            {wakeActivo ? '🔒 Pantalla despierta' : '⚠️ Toca la pantalla para activar “pantalla despierta”.'}
           </p>
         )}
       </div>
