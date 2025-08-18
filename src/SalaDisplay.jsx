@@ -27,7 +27,7 @@ export default function SalaDisplay() {
   const [tokenClient, setTokenClient] = useState(null)
 
   // --- Wake Lock (mantener pantalla encendida) ---
-  const [wakeLockSoportado, setWakeLockSoportado] = useState('wakeLock' in navigator)
+  const [wakeLockSoportado] = useState('wakeLock' in navigator)
   const wakeLockRef = useRef(null)
   const [wakeActivo, setWakeActivo] = useState(false)
 
@@ -47,25 +47,14 @@ export default function SalaDisplay() {
       wakeLockRef.current = null
     }
   }
-
   function liberarWakeLock() {
-    try {
-      if (wakeLockRef.current) {
-        wakeLockRef.current.release()
-        wakeLockRef.current = null
-      }
-    } catch {}
+    try { wakeLockRef.current?.release() } catch {}
+    wakeLockRef.current = null
     setWakeActivo(false)
   }
-
-  // Reactiva el wake lock cuando la pestaña vuelve a ser visible o la ventana recupera foco
   useEffect(() => {
     if (!wakeLockSoportado) return
-    const onVisibility = () => {
-      if (document.visibilityState === 'visible') {
-        solicitarWakeLock()
-      }
-    }
+    const onVisibility = () => { if (document.visibilityState === 'visible') solicitarWakeLock() }
     const onFocus = () => solicitarWakeLock()
     document.addEventListener('visibilitychange', onVisibility)
     window.addEventListener('focus', onFocus)
@@ -74,8 +63,6 @@ export default function SalaDisplay() {
       window.removeEventListener('focus', onFocus)
     }
   }, [wakeLockSoportado])
-
-  // Solicita el wake lock tras el primer gesto del usuario (requisito de algunos navegadores)
   useEffect(() => {
     if (!wakeLockSoportado) return
     let activado = false
@@ -95,14 +82,15 @@ export default function SalaDisplay() {
       liberarWakeLock()
     }
   }, [wakeLockSoportado])
-  // --- Fin Wake Lock ---
+  // --- fin Wake Lock ---
 
+  // tick de hora y carga de Google Identity
   useEffect(() => {
     const timer = setInterval(() => setHoraActual(new Date()), 10000)
     cargarGoogleIdentity()
     return () => {
       clearInterval(timer)
-      liberarWakeLock() // por si acaso al desmontar
+      liberarWakeLock()
     }
   }, [])
 
@@ -116,18 +104,11 @@ export default function SalaDisplay() {
         scope: 'https://www.googleapis.com/auth/calendar.events openid email profile',
         prompt: '',
         callback: (response) => {
-          if (response && response.access_token) {
+          if (response?.access_token) {
             setAccessToken(response.access_token)
             obtenerEmailDesdeToken(response.access_token)
           } else {
-            Swal.fire({
-              icon: 'error',
-              title: 'No se pudo obtener el token de acceso',
-              showConfirmButton: false,
-              timer: 2000,
-              timerProgressBar: true,
-              position: 'center'
-            })
+            Swal.fire({ icon: 'error', title: 'No se pudo obtener el token de acceso', showConfirmButton: false, timer: 2000, timerProgressBar: true, position: 'center' })
           }
         }
       })
@@ -146,60 +127,67 @@ export default function SalaDisplay() {
           setUsuario(data)
           obtenerEventosCalendario(token)
         } else {
-          Swal.fire({
-            icon: 'error',
-            title: 'Acceso no autorizado',
-            showConfirmButton: false,
-            timer: 2000,
-            timerProgressBar: true,
-            position: 'center'
-          })
+          Swal.fire({ icon: 'error', title: 'Acceso no autorizado', showConfirmButton: false, timer: 2000, timerProgressBar: true, position: 'center' })
         }
       })
       .catch(() => {
-        Swal.fire({
-          icon: 'error',
-          title: 'Error al validar el email',
-          showConfirmButton: false,
-          timer: 2000,
-          timerProgressBar: true,
-          position: 'center'
-        })
+        Swal.fire({ icon: 'error', title: 'Error al validar el email', showConfirmButton: false, timer: 2000, timerProgressBar: true, position: 'center' })
       })
   }
 
   function iniciarSesion() {
-    if (tokenClient) tokenClient.requestAccessToken()
+    tokenClient?.requestAccessToken()
   }
 
   async function obtenerEventosCalendario(token) {
     const hoy = new Date()
-    const inicioISO = new Date(new Date(hoy).setHours(8, 0, 0, 0)).toISOString()
-    const finISO = new Date(new Date(hoy).setHours(19, 0, 0, 0)).toISOString()
+    const inicio = new Date(hoy); inicio.setHours(8, 0, 0, 0)
+    const fin    = new Date(hoy); fin.setHours(19, 0, 0, 0)
 
-    const res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/${GOOGLE_CALENDAR_ID}/events?timeMin=${inicioISO}&timeMax=${finISO}&singleEvents=true&orderBy=startTime`, {
-      headers: { Authorization: `Bearer ${token}` }
-    })
-
-    const data = await res.json()
-    const ahora = new Date()
-    const eventoActual = data.items?.find(ev =>
-      new Date(ev.start.dateTime) <= ahora && new Date(ev.end.dateTime) > ahora
+    const res = await fetch(
+      `https://www.googleapis.com/calendar/v3/calendars/${GOOGLE_CALENDAR_ID}/events?timeMin=${inicio.toISOString()}&timeMax=${fin.toISOString()}&singleEvents=true&orderBy=startTime`,
+      { headers: { Authorization: `Bearer ${token}` } }
     )
-
-    setEstado(eventoActual ? "ocupado" : "disponible")
-    setEvento(eventoActual || null)
+    const data = await res.json()
     setEventos(data.items || [])
+    // el estado se recalcula en el efecto de abajo
   }
 
-  function estaOcupado(inicio, duracion) {
-    const fin = new Date(inicio.getTime() + duracion * 60 * 1000)
-    return eventos.some(ev => {
-      const evInicio = new Date(ev.start.dateTime)
-      const evFin = new Date(ev.end.dateTime)
-      return evInicio < fin && evFin > inicio
+  // 1) Recalcular estado (ocupado/disponible) en cada tick o cuando cambian los eventos
+  useEffect(() => {
+    if (!eventos?.length) {
+      setEstado("disponible")
+      setEvento(null)
+      return
+    }
+    const ahora = new Date()
+    const actual = eventos.find(ev => {
+      // ignorar eventos de día completo (start.date)
+      if (!ev?.start?.dateTime || !ev?.end?.dateTime) return false
+      const start = new Date(ev.start.dateTime)
+      const end   = new Date(ev.end.dateTime)
+      return start <= ahora && end > ahora
     })
-  }
+    setEstado(actual ? "ocupado" : "disponible")
+    setEvento(actual || null)
+  }, [horaActual, eventos])
+
+  // 2) Releer calendario cada 60s
+  useEffect(() => {
+    if (!accessToken) return
+    const id = setInterval(() => obtenerEventosCalendario(accessToken), 60_000)
+    return () => clearInterval(id)
+  }, [accessToken])
+
+  // 3) Releer justo al terminar el evento en curso
+  useEffect(() => {
+    if (!accessToken || !evento?.end?.dateTime) return
+    const ms = new Date(evento.end.dateTime).getTime() - Date.now()
+    if (ms > 0 && ms < 6 * 60 * 60 * 1000) {
+      const t = setTimeout(() => obtenerEventosCalendario(accessToken), ms + 500)
+      return () => clearTimeout(t)
+    }
+  }, [evento, accessToken])
 
   function agendarDesde(minutos, inicio = new Date()) {
     setInicioReserva(inicio)
@@ -209,46 +197,26 @@ export default function SalaDisplay() {
 
   async function agendarEvento(nombre, inicio) {
     const fin = new Date(inicio.getTime() + duracionReserva * 60 * 1000)
-
     const evento = {
       summary: `Reserva Sala Caleu - ${nombre}`,
       location: "Caleu",
       start: { dateTime: inicio.toISOString(), timeZone: 'America/Santiago' },
-      end: { dateTime: fin.toISOString(), timeZone: 'America/Santiago' },
+      end:   { dateTime: fin.toISOString(),    timeZone: 'America/Santiago' },
       visibility: "default",
       description: `Reserva realizada por ${nombre} desde la tablet.`
     }
-
     const res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/${GOOGLE_CALENDAR_ID}/events`, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json'
-      },
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(evento)
     })
 
     if (res.ok) {
-      Swal.fire({
-        icon: 'success',
-        title: 'Reserva creada con éxito ✅',
-        showConfirmButton: false,
-        timer: 2000,
-        timerProgressBar: true,
-        position: 'center'
-      })
+      Swal.fire({ icon: 'success', title: 'Reserva creada con éxito ✅', showConfirmButton: false, timer: 2000, timerProgressBar: true, position: 'center' })
       obtenerEventosCalendario(accessToken)
     } else {
-      Swal.fire({
-        icon: 'error',
-        title: 'Error al crear la reserva ❌',
-        showConfirmButton: false,
-        timer: 2000,
-        timerProgressBar: true,
-        position: 'center'
-      })
+      Swal.fire({ icon: 'error', title: 'Error al crear la reserva ❌', showConfirmButton: false, timer: 2000, timerProgressBar: true, position: 'center' })
     }
-
     setMostrarModalNombre(false)
   }
 
@@ -259,14 +227,10 @@ export default function SalaDisplay() {
           <img src={logo} alt="Logo" className="logo" />
           <p className="titulo-sala">Autenticación requerida</p>
           <button onClick={iniciarSesion} className="boton-reservar">Iniciar sesión con Google</button>
-
-          {/* Indicador Wake Lock (antes de login puede no estar activo aún) */}
           {!wakeLockSoportado ? (
-            <p style={{ opacity: .8, fontSize: 12, marginTop: 8 }}>
-              ℹ️ Tu navegador no soporta mantener la pantalla encendida.
-            </p>
+            <p style={{ opacity:.8, fontSize:12, marginTop:8 }}>ℹ️ Tu navegador no soporta mantener la pantalla encendida.</p>
           ) : (
-            <p style={{ opacity: .8, fontSize: 12, marginTop: 8 }}>
+            <p style={{ opacity:.8, fontSize:12, marginTop:8 }}>
               {wakeActivo ? '🔒 Pantalla despierta' : '⚠️ Toca la pantalla para activar “pantalla despierta”.'}
             </p>
           )}
@@ -287,14 +251,10 @@ export default function SalaDisplay() {
             <Clock className="icono" /> {new Date(evento.start.dateTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {new Date(evento.end.dateTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </p>
         )}
-
-        {/* Indicador Wake Lock */}
         {!wakeLockSoportado ? (
-          <p style={{ opacity: .8, fontSize: 12, marginTop: 8 }}>
-            ℹ️ Tu navegador no soporta mantener la pantalla encendida.
-          </p>
+          <p style={{ opacity:.8, fontSize:12, marginTop:8 }}>ℹ️ Tu navegador no soporta mantener la pantalla encendida.</p>
         ) : (
-          <p style={{ opacity: .8, fontSize: 12, marginTop: 8 }}>
+          <p style={{ opacity:.8, fontSize:12, marginTop:8 }}>
             {wakeActivo ? '🔒 Pantalla despierta' : '⚠️ Toca la pantalla para activar “pantalla despierta”.'}
           </p>
         )}
@@ -303,17 +263,10 @@ export default function SalaDisplay() {
       <div className="lado-derecho">
         <div className={`estado-box ${estado}`}>
           <h2 className="estado-texto">{estado === "disponible" ? "Disponible" : "Ocupada"}</h2>
-          <button
-            className="boton-reservar"
-            disabled={estado === "ocupado"}
-            onClick={() => agendarDesde(30)}
-          >
+          <button className="boton-reservar" disabled={estado === "ocupado"} onClick={() => agendarDesde(30)}>
             Reservar
           </button>
-          <button
-            className="boton-reservar"
-            onClick={() => setMostrarModalHorario(true)}
-          >
+          <button className="boton-reservar" onClick={() => setMostrarModalHorario(true)}>
             Agendar otro horario
           </button>
         </div>
@@ -323,7 +276,9 @@ export default function SalaDisplay() {
           <ul className="agenda-lista">
             {eventos.map((ev, i) => (
               <li key={i} className="agenda-item">
-                <span>{new Date(ev.start.dateTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {new Date(ev.end.dateTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                <span>
+                  {new Date(ev.start.dateTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {new Date(ev.end.dateTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
                 <strong>{ev.summary}</strong>
               </li>
             ))}
