@@ -30,6 +30,7 @@ export default function SalaDisplay() {
   const [wakeLockSoportado] = useState('wakeLock' in navigator)
   const wakeLockRef = useRef(null)
   const [wakeActivo, setWakeActivo] = useState(false)
+  const wakeHeartbeatRef = useRef(null)
 
   async function solicitarWakeLock() {
     try {
@@ -40,6 +41,8 @@ export default function SalaDisplay() {
       wakeLockRef.current.addEventListener('release', () => {
         setWakeActivo(false)
         wakeLockRef.current = null
+        // reintentar tras breve delay
+        setTimeout(() => solicitarWakeLock().catch(() => {}), 1500)
       })
     } catch (err) {
       console.warn('No se pudo activar Wake Lock:', err?.message || err)
@@ -58,9 +61,17 @@ export default function SalaDisplay() {
     const onFocus = () => solicitarWakeLock()
     document.addEventListener('visibilitychange', onVisibility)
     window.addEventListener('focus', onFocus)
+
+    // heartbeat cada 4 min
+    wakeHeartbeatRef.current = setInterval(() => {
+      if (!wakeLockRef.current) solicitarWakeLock().catch(() => {})
+    }, 240_000)
+
     return () => {
       document.removeEventListener('visibilitychange', onVisibility)
       window.removeEventListener('focus', onFocus)
+      if (wakeHeartbeatRef.current) clearInterval(wakeHeartbeatRef.current)
+      liberarWakeLock()
     }
   }, [wakeLockSoportado])
   useEffect(() => {
@@ -79,7 +90,6 @@ export default function SalaDisplay() {
     return () => {
       window.removeEventListener('click', handler)
       window.removeEventListener('touchstart', handler)
-      liberarWakeLock()
     }
   }, [wakeLockSoportado])
   // --- fin Wake Lock ---
@@ -150,7 +160,6 @@ export default function SalaDisplay() {
     )
     const data = await res.json()
     setEventos(data.items || [])
-    // el estado se recalcula en el efecto de abajo
   }
 
   // 1) Recalcular estado (ocupado/disponible) en cada tick o cuando cambian los eventos
@@ -162,7 +171,6 @@ export default function SalaDisplay() {
     }
     const ahora = new Date()
     const actual = eventos.find(ev => {
-      // ignorar eventos de día completo (start.date)
       if (!ev?.start?.dateTime || !ev?.end?.dateTime) return false
       const start = new Date(ev.start.dateTime)
       const end   = new Date(ev.end.dateTime)
@@ -184,7 +192,11 @@ export default function SalaDisplay() {
     if (!accessToken || !evento?.end?.dateTime) return
     const ms = new Date(evento.end.dateTime).getTime() - Date.now()
     if (ms > 0 && ms < 6 * 60 * 60 * 1000) {
-      const t = setTimeout(() => obtenerEventosCalendario(accessToken), ms + 500)
+      const t = setTimeout(() => {
+        setEstado("disponible")
+        setEvento(null)
+        setTimeout(() => obtenerEventosCalendario(accessToken), 2000)
+      }, ms + 500)
       return () => clearTimeout(t)
     }
   }, [evento, accessToken])
@@ -301,3 +313,4 @@ export default function SalaDisplay() {
     </motion.div>
   )
 }
+

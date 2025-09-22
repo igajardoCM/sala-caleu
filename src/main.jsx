@@ -8,10 +8,10 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     <SalaDisplay />
   </React.StrictMode>,
 )
+
+// 🔧 Desregistrar cualquier Service Worker previo (evita quedarse con JS cacheado)
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sala-caleu/service-worker.js')
-      .then(reg => console.log('Service Worker registrado ✅', reg))
-      .catch(err => console.error('Error al registrar Service Worker ❌', err));
-  });
+  navigator.serviceWorker.getRegistrations()
+    .then(regs => regs.forEach(r => r.unregister()))
+    .catch(err => console.error('Error al desregistrar Service Workers:', err))
 }
