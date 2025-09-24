@@ -1,31 +1,32 @@
 {
-  "name": "sala-caleu-display",
-  "version": "1.0.0",
+  "name": "sala-caleu",
   "private": true,
-  "type": "module",
-  "homepage": "https://igajardocm.github.io/sala-caleu",
+  "version": "0.0.0",
+  "homepage": "https://igajardoCM.github.io/sala-caleu",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "deploy": "gh-pages -d dist",
-    "tailwind:init": "npx tailwindcss init -p"
+    "deploy": "vite build && gh-pages -d dist"
   },
   "dependencies": {
     "framer-motion": "^11.0.0",
-    "lucide-react": "^0.297.0",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "sweetalert2": "^11.22.2"
+    "lucide-react": "^0.477.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "sweetalert2": "^11.12.4"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4.1.11",
-    "@vitejs/plugin-react": "^4.1.0",
+    "@tailwindcss/postcss": "^4.1.13",
+    "@vitejs/plugin-react": "^5.0.3",
     "autoprefixer": "^10.4.21",
-    "gh-pages": "^6.0.0",
+    "gh-pages": "^6.1.1",
     "postcss": "^8.5.6",
-    "tailwindcss": "^3.4.17",
-    "vite": "^5.2.10",
-    "vite-plugin-static-copy": "^3.1.1"
+    "tailwindcss": "^4.1.13",
+    "vite": "^5.4.0",
+    "vite-plugin-pwa": "^1.0.3"
   }
 }
