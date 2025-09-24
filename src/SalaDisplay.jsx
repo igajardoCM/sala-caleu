@@ -3,24 +3,24 @@ import { motion } from 'framer-motion'
 import './index.css'
 import NombreReservaModal from './components/NombreReservaModal'
 import ModalReserva from './components/ModalReserva'
-import { Clock } from "lucide-react"
+import { Clock } from 'lucide-react'
 import Swal from 'sweetalert2'
 import 'sweetalert2/dist/sweetalert2.min.css'
 
-const logo = "https://clinicalmarket.cl/wp-content/uploads/Clinical-Market-logo.png.webp"
+const logo = 'https://clinicalmarket.cl/wp-content/uploads/Clinical-Market-logo.png.webp'
 
 const GOOGLE_CALENDAR_ID = import.meta.env.VITE_GOOGLE_CALENDAR_ID
 const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID
-const USUARIO_AUTORIZADO = import.meta.env.VITE_USUARIO_AUTORIZADO
+const USUARIO_AUTORIZADO = (import.meta.env.VITE_USUARIO_AUTORIZADO || '').toLowerCase().trim()
 
-// Configuración de timers
-const UI_TICK_MS = 10_000      // recalcular estado visual
-const POLL_MS    = 60_000      // leer calendario
-const TOKEN_PAD_MS = 55 * 60 * 1000 // margen de exp. de token (~55 min)
-const TOKEN_RENEW_INTERVAL = 45 * 60 * 1000 // renovación proactiva cada 45 min
+// Timers
+const UI_TICK_MS = 10_000          // refrescar hora/estado
+const POLL_MS    = 60_000          // leer eventos
+const TOKEN_PAD_MS = 55 * 60 * 1000
+const TOKEN_RENEW_INTERVAL = 45 * 60 * 1000
 
 export default function SalaDisplay() {
-  const [estado, setEstado] = useState("cargando")
+  const [estado, setEstado] = useState('cargando') // 'disponible' | 'ocupado' | 'cargando'
   const [evento, setEvento] = useState(null)
   const [horaActual, setHoraActual] = useState(new Date())
   const [usuario, setUsuario] = useState(null)
@@ -31,17 +31,18 @@ export default function SalaDisplay() {
   const [inicioReserva, setInicioReserva] = useState(null)
   const [duracionReserva, setDuracionReserva] = useState(30)
 
+  // Token
   const [accessToken, setAccessToken] = useState(null)
   const tokenClientRef = useRef(null)
-  const tokenExpRef = useRef(0) // timestamp cuando consideramos que el token expira
+  const tokenExpRef = useRef(0)
 
-  // Wake Lock robusto
+  // Wake Lock
   const [wakeLockSoportado] = useState('wakeLock' in navigator)
   const wakeLockRef = useRef(null)
   const [wakeActivo, setWakeActivo] = useState(false)
   const wakeHeartbeatRef = useRef(null)
 
-  // ------------------ Wake Lock ------------------
+  // ---------------- Wake Lock ----------------
   async function solicitarWakeLock() {
     try {
       if (!('wakeLock' in navigator)) return
@@ -51,11 +52,10 @@ export default function SalaDisplay() {
       wakeLockRef.current.addEventListener('release', () => {
         setWakeActivo(false)
         wakeLockRef.current = null
-        // Reintenta automáticamente
         setTimeout(() => solicitarWakeLock().catch(() => {}), 1500)
       })
     } catch (err) {
-      console.warn('No se pudo activar Wake Lock:', err?.message || err)
+      console.warn('WakeLock:', err?.message || err)
       setWakeActivo(false)
       wakeLockRef.current = null
     }
@@ -72,42 +72,39 @@ export default function SalaDisplay() {
     document.addEventListener('visibilitychange', onVisibility)
     window.addEventListener('focus', onFocus)
 
-    // Heartbeat cada 4 min
     wakeHeartbeatRef.current = setInterval(() => {
       if (!wakeLockRef.current) solicitarWakeLock().catch(() => {})
     }, 240_000)
 
-    // Primer intento tras interacción (algunas tablets lo exigen)
     let activado = false
-    const handler = async () => {
+    const kick = async () => {
       if (!activado) {
         activado = true
         await solicitarWakeLock()
-        window.removeEventListener('click', handler)
-        window.removeEventListener('touchstart', handler)
+        window.removeEventListener('click', kick)
+        window.removeEventListener('touchstart', kick)
       }
     }
-    window.addEventListener('click', handler, { passive: true })
-    window.addEventListener('touchstart', handler, { passive: true })
+    window.addEventListener('click', kick, { passive: true })
+    window.addEventListener('touchstart', kick, { passive: true })
 
     return () => {
       document.removeEventListener('visibilitychange', onVisibility)
       window.removeEventListener('focus', onFocus)
-      window.removeEventListener('click', handler)
-      window.removeEventListener('touchstart', handler)
+      window.removeEventListener('click', kick)
+      window.removeEventListener('touchstart', kick)
       if (wakeHeartbeatRef.current) clearInterval(wakeHeartbeatRef.current)
       liberarWakeLock()
     }
   }, [wakeLockSoportado])
-  // ---------------- Fin Wake Lock ----------------
+  // -------------- fin Wake Lock --------------
 
-  // ---------------- Google Identity / Token ----------------
+  // -------------- Google Identity / Token --------------
   function marcarTokenValido() {
     tokenExpRef.current = Date.now() + TOKEN_PAD_MS
   }
 
   async function asegurarTokenVigente({ prompt = '' } = {}) {
-    // Si faltan 30s o menos, o no hay token, renovamos
     const queda = tokenExpRef.current - Date.now()
     if (!accessToken || queda < 30_000) {
       return new Promise((resolve) => {
@@ -121,7 +118,7 @@ export default function SalaDisplay() {
             resolve(false)
           }
         }
-        tokenClientRef.current.requestAccessToken({ prompt }) // prompt:'' = silencioso
+        tokenClientRef.current.requestAccessToken({ prompt })
       })
     }
     return true
@@ -132,68 +129,84 @@ export default function SalaDisplay() {
       initTokenClient()
       return
     }
-    const script = document.createElement("script")
-    script.src = "https://accounts.google.com/gsi/client"
-    script.async = true
-    script.onload = initTokenClient
-    document.body.appendChild(script)
+    const s = document.createElement('script')
+    s.src = 'https://accounts.google.com/gsi/client'
+    s.async = true
+    s.defer = true
+    s.onload = initTokenClient
+    document.body.appendChild(s)
   }
 
   function initTokenClient() {
     tokenClientRef.current = window.google.accounts.oauth2.initTokenClient({
       client_id: CLIENT_ID,
-      scope: 'https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events openid email profile',
-      prompt: '', // silencioso por defecto
-      callback: async (response) => {
-        if (response?.access_token) {
-          setAccessToken(response.access_token)
+      scope:
+        'https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events openid email profile',
+      // no forzamos silencioso aquí; el botón abre prompt visible
+      callback: async (resp) => {
+        if (resp?.access_token) {
+          setAccessToken(resp.access_token)
           marcarTokenValido()
-          await obtenerEmailDesdeToken(response.access_token)
+          await obtenerEmailDesdeToken(resp.access_token) // esto setea usuario y entra a la app
         } else {
-          Swal.fire({ icon: 'error', title: 'No se pudo obtener el token de acceso', showConfirmButton: false, timer: 2000, timerProgressBar: true, position: 'center' })
+          console.warn('[login] sin access_token')
         }
-      }
+      },
     })
   }
 
   async function obtenerEmailDesdeToken(token) {
     try {
-      const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-        headers: { Authorization: `Bearer ${token}` }
+      const r = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+        headers: { Authorization: `Bearer ${token}` },
       })
-      const data = await res.json()
-      if (data.email === USUARIO_AUTORIZADO) {
-        setUsuario(data)
-        obtenerEventosCalendario() // se encargará de renovar token si hace falta
-      } else {
-        Swal.fire({ icon: 'error', title: 'Acceso no autorizado', showConfirmButton: false, timer: 2000, timerProgressBar: true, position: 'center' })
+      if (!r.ok) {
+        console.error('[userinfo]', r.status, await r.text())
+        Swal.fire({ icon: 'error', title: `Error userinfo (${r.status})`, timer: 1800, showConfirmButton: false })
+        return
       }
-    } catch {
-      Swal.fire({ icon: 'error', title: 'Error al validar el email', showConfirmButton: false, timer: 2000, timerProgressBar: true, position: 'center' })
+      const data = await r.json()
+      const email = (data?.email || '').toLowerCase().trim()
+
+      // Si no configuraste USUARIO_AUTORIZADO, no bloqueamos la UI.
+      if (!USUARIO_AUTORIZADO || email === USUARIO_AUTORIZADO) {
+        setUsuario(data)              // ✅ avanza a la app
+        obtenerEventosCalendario()
+      } else {
+        Swal.fire({
+          icon: 'error',
+          title: 'Acceso no autorizado',
+          text: `Este correo (${email}) no coincide con el autorizado.`,
+          timer: 2200,
+          showConfirmButton: false,
+        })
+      }
+    } catch (e) {
+      console.error('[userinfo] error', e)
+      Swal.fire({ icon: 'error', title: 'Error al validar el email', timer: 1800, showConfirmButton: false })
     }
   }
 
   function iniciarSesion() {
-    // fuerza prompt visible la primera vez si fue silencioso
-    asegurarTokenVigente({ prompt: 'consent' })
+    // flujo visible y estable como antes
+    tokenClientRef.current?.requestAccessToken({ prompt: 'consent' })
   }
 
-  // Renovación proactiva del token cada 45min
+  // Renovación proactiva
   useEffect(() => {
+    if (!accessToken) return
     const id = setInterval(() => {
       asegurarTokenVigente({ prompt: '' }).catch(() => {})
     }, TOKEN_RENEW_INTERVAL)
     return () => clearInterval(id)
   }, [accessToken])
-  // -------------- Fin Google Identity / Token --------------
+  // ---------- fin Google Identity / Token ----------
 
-  // ------------------ Lectura de calendario ----------------
+  // ---------------- Calendario ----------------
   async function obtenerEventosCalendario() {
-    // Asegura token antes de leer
     const ok = await asegurarTokenVigente({ prompt: '' })
     if (!ok) return
 
-    // Rango del día completo (para evitar cortar eventos fuera 8-19)
     const d = new Date()
     const inicio = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0)
     const fin    = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999)
@@ -204,7 +217,6 @@ export default function SalaDisplay() {
 
     let res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } })
 
-    // Si el token caducó, renueva silenciosamente y reintenta 1 vez
     if (res.status === 401) {
       const refreshed = await asegurarTokenVigente({ prompt: '' })
       if (refreshed) {
@@ -222,38 +234,36 @@ export default function SalaDisplay() {
     setEventos(Array.isArray(data.items) ? data.items : [])
   }
 
-  // Recalcular estado cada UI_TICK_MS y cuando cambian eventos
-  useEffect(() => {
-    const tick = setInterval(() => {
-      setHoraActual(new Date())
-      recalcularEstado()
-    }, UI_TICK_MS)
-    // primera vez
-    recalcularEstado()
-    return () => clearInterval(tick)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [eventos])
-
   function recalcularEstado() {
     if (!Array.isArray(eventos) || eventos.length === 0) {
-      setEstado("disponible")
+      setEstado('disponible')
       setEvento(null)
       return
     }
     const ahora = Date.now()
     let actual = null
     for (const ev of eventos) {
-      // ignorar de día completo (start.date sin dateTime)
       if (!ev?.start?.dateTime || !ev?.end?.dateTime) continue
       const s = new Date(ev.start.dateTime).getTime()
       const e = new Date(ev.end.dateTime).getTime()
       if (ahora >= s && ahora < e) { actual = ev; break }
     }
     setEvento(actual)
-    setEstado(actual ? "ocupado" : "disponible")
+    setEstado(actual ? 'ocupado' : 'disponible')
   }
 
-  // Polling completo cada 60s
+  // Tick UI + recomputar estado
+  useEffect(() => {
+    const t = setInterval(() => {
+      setHoraActual(new Date())
+      recalcularEstado()
+    }, UI_TICK_MS)
+    recalcularEstado()
+    return () => clearInterval(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eventos])
+
+  // Polling
   useEffect(() => {
     let alive = true
     const loop = async () => {
@@ -264,30 +274,30 @@ export default function SalaDisplay() {
     }
     if (usuario) loop()
     return () => { alive = false }
-  }, [usuario]) // arranca polling tras login válido
+  }, [usuario])
 
-  // Al terminar la reunión actual, libera estado y refresca
+  // Al terminar reunión actual
   useEffect(() => {
     if (!evento?.end?.dateTime) return
     const ms = new Date(evento.end.dateTime).getTime() - Date.now()
     if (ms <= 0 || ms > 6 * 60 * 60 * 1000) return
     const t = setTimeout(() => {
-      setEstado("disponible")
+      setEstado('disponible')
       setEvento(null)
-      setTimeout(() => obtenerEventosCalendario(), 2000) // refresco rápido
+      setTimeout(() => obtenerEventosCalendario(), 2000)
     }, ms + 300)
     return () => clearTimeout(t)
   }, [evento])
+  // -------------- fin Calendario --------------
 
-  // Tick inicial + cargar Google
+  // Arranque
   useEffect(() => {
     const timer = setInterval(() => setHoraActual(new Date()), UI_TICK_MS)
     cargarGoogleIdentity()
     return () => clearInterval(timer)
   }, [])
-  // ---------------- Fin lectura de calendario ----------------
 
-  // ----------- Crear eventos desde la tablet -----------
+  // ---------- Crear evento desde la tablet ----------
   function agendarDesde(minutos, inicio = new Date()) {
     setInicioReserva(inicio)
     setDuracionReserva(minutos)
@@ -298,29 +308,28 @@ export default function SalaDisplay() {
     const fin = new Date(inicio.getTime() + duracionReserva * 60 * 1000)
     const body = {
       summary: `Reserva Sala Caleu - ${nombre}`,
-      location: "Caleu",
+      location: 'Caleu',
       start: { dateTime: inicio.toISOString(), timeZone: 'America/Santiago' },
       end:   { dateTime: fin.toISOString(),    timeZone: 'America/Santiago' },
-      visibility: "default",
-      description: `Reserva realizada por ${nombre} desde la tablet.`
+      visibility: 'default',
+      description: `Reserva realizada por ${nombre} desde la tablet.`,
     }
 
-    // Asegura token por si caducó
     await asegurarTokenVigente({ prompt: '' })
 
-    const res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(GOOGLE_CALENDAR_ID)}/events`, {
-      method: "POST",
+    let res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(GOOGLE_CALENDAR_ID)}/events`, {
+      method: 'POST',
       headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
+      body: JSON.stringify(body),
     })
 
     if (res.status === 401) {
       const ok = await asegurarTokenVigente({ prompt: '' })
       if (ok) {
-        await fetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(GOOGLE_CALENDAR_ID)}/events`, {
-          method: "POST",
+        res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(GOOGLE_CALENDAR_ID)}/events`, {
+          method: 'POST',
           headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify(body)
+          body: JSON.stringify(body),
         })
       }
     }
@@ -328,12 +337,12 @@ export default function SalaDisplay() {
     if (res.ok) {
       Swal.fire({ icon: 'success', title: 'Reserva creada con éxito ✅', showConfirmButton: false, timer: 2000, timerProgressBar: true, position: 'center' })
       obtenerEventosCalendario()
-    } else if (res.status !== 401) {
+    } else {
       Swal.fire({ icon: 'error', title: 'Error al crear la reserva ❌', showConfirmButton: false, timer: 2000, timerProgressBar: true, position: 'center' })
     }
     setMostrarModalNombre(false)
   }
-  // ----------- Fin crear eventos -----------
+  // ---------- fin crear evento ----------
 
   if (!usuario) {
     return (
@@ -341,7 +350,7 @@ export default function SalaDisplay() {
         <div className="lado-izquierdo">
           <img src={logo} alt="Logo" className="logo" />
           <p className="titulo-sala">Autenticación requerida</p>
-          <button onClick={() => iniciarSesion()} className="boton-reservar">Iniciar sesión con Google</button>
+          <button onClick={iniciarSesion} className="boton-reservar">Iniciar sesión con Google</button>
           {!wakeLockSoportado ? (
             <p style={{ opacity:.8, fontSize:12, marginTop:8 }}>ℹ️ Tu navegador no soporta mantener la pantalla encendida.</p>
           ) : (
@@ -355,7 +364,7 @@ export default function SalaDisplay() {
   }
 
   return (
-    <motion.div className={`pantalla layout`}>
+    <motion.div className="pantalla layout">
       <div className="lado-izquierdo">
         <img src={logo} alt="Logo" className="logo" />
         <h1 className="titulo-sala">Sala Caleu</h1>
@@ -377,8 +386,8 @@ export default function SalaDisplay() {
 
       <div className="lado-derecho">
         <div className={`estado-box ${estado}`}>
-          <h2 className="estado-texto">{estado === "disponible" ? "Disponible" : "Ocupada"}</h2>
-          <button className="boton-reservar" disabled={estado === "ocupado"} onClick={() => agendarDesde(30)}>
+          <h2 className="estado-texto">{estado === 'disponible' ? 'Disponible' : 'Ocupada'}</h2>
+          <button className="boton-reservar" disabled={estado === 'ocupado'} onClick={() => agendarDesde(30)}>
             Reservar
           </button>
           <button className="boton-reservar" onClick={() => setMostrarModalHorario(true)}>
