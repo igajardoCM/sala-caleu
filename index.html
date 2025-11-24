@@ -6,15 +6,23 @@
 
     <title>Sala Caleu</title>
 
-    <!-- ❌ Eliminado: manifest.json (PWA), icons y cualquier referencia a SW -->
-    <!-- ❌ Eliminado: <link rel="manifest" href="/manifest.json"> -->
-    <script type="module" crossorigin src="/sala-caleu/assets/index-CQFJ1i6y.js"></script>
+    <!-- ⬅️ Manifest correcto para PWA -->
+    <link rel="manifest" href="/sala-caleu/manifest.webmanifest" />
+
+    <!-- Color barra superior Android -->
+    <meta name="theme-color" content="#000000" />
+
+    <!-- Íconos necesarios para instalación -->
+    <link rel="icon" href="/sala-caleu/icons/icon-192.png" />
+    <link rel="apple-touch-icon" href="/sala-caleu/icons/icon-512.png" />
+
+    <script type="module" crossorigin src="/sala-caleu/assets/index-BAG-YU2p.js"></script>
     <link rel="stylesheet" crossorigin href="/sala-caleu/assets/index-Chk5ERg1.css">
-  <link rel="manifest" href="/sala-caleu/manifest.webmanifest"><script id="vite-plugin-pwa:register-sw" src="/sala-caleu/registerSW.js"></script></head>
+  <link rel="manifest" href="/sala-caleu/manifest.webmanifest"></head>
 
   <body>
     <div id="root"></div>
 
-    <!-- ✅ Import correcto del archivo en src/main.jsx -->
+    <!-- Import principal -->
   </body>
 </html>

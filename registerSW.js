@@ -1,1 +1,0 @@
-if('serviceWorker' in navigator) {window.addEventListener('load', () => {navigator.serviceWorker.register('/sala-caleu/sw.js', { scope: '/sala-caleu/' })})}
